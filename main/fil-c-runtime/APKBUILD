@@ -1,0 +1,18 @@
+# Maintainer: Fil-C Build <noreply@example.com>
+pkgname=fil-c-runtime
+pkgver=0.674
+pkgrel=0
+pkgdesc="Fil-C runtime libraries"
+url="https://github.com/pizlonator/fil-c"
+arch="x86_64"
+license="custom"
+options="!check !strip"
+
+package() {
+	mkdir -p "$pkgdir"/usr/lib
+
+	# Copy fil-c runtime libraries
+	install -D -m755 /workspace/fil-c/pizfix/lib/libpizlo.so "$pkgdir"/usr/lib/libpizlo.so
+	install -D -m755 /workspace/fil-c/pizfix/lib/libyoloc.so "$pkgdir"/usr/lib/libyoloc.so
+	install -D -m755 /workspace/fil-c/pizfix/lib/libyolom.so "$pkgdir"/usr/lib/libyolom.so || true
+}

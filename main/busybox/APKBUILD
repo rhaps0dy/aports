@@ -11,7 +11,7 @@ arch="all"
 license="GPL-2.0-only"
 # Documentation needs pod2man (silently fails otherwise)
 makedepends_build="perl"
-makedepends_host="linux-headers openssl-dev>3"
+makedepends_host="linux-headers openssl-dev>3 fil-c-runtime"
 # Only build with utmps support if we are not bootstraping.
 [ -z "$BOOTSTRAP" ] && makedepends_host="$makedepends_host utmps-dev utmps-static"
 makedepends="$makedepends_build $makedepends_host"
@@ -166,6 +166,12 @@ prepare() {
 }
 
 build() {
+	# Configure Fil-C compiler
+	export CC=/workspace/fil-c/build/bin/clang
+	export RANLIB=/workspace/fil-c/build/bin/llvm-ranlib
+	export CFLAGS="$CFLAGS -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/"
+	export LDFLAGS="$LDFLAGS -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/"
+
 	local _extra_cflags= _extra_libs=
 	if [ -z "$BOOTSTRAP" ] ; then
 		_extra_cflags="$(pkg-config --cflags --static libutmps)"

@@ -11,7 +11,7 @@ arch="all"
 license="Apache-2.0"
 provider_priority=100  # highest
 makedepends_build="perl"
-makedepends_host="linux-headers"
+makedepends_host="linux-headers fil-c-runtime"
 makedepends="$makedepends_host $makedepends_build"
 install="$pkgname-fips.post-install"
 subpackages="
@@ -137,6 +137,12 @@ builddir="$srcdir/openssl-$pkgver"
 build() {
 	local target optflags
 
+	# Configure Fil-C compiler
+	export CC=/workspace/fil-c/build/bin/clang
+	export RANLIB=/workspace/fil-c/build/bin/llvm-ranlib
+	export CFLAGS="$CFLAGS -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/"
+	export LDFLAGS="$LDFLAGS -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/"
+
 	# openssl will prepend crosscompile always core CC et al
 	CC=${CC#"$CROSS_COMPILE"}
 	CXX=${CXX#"$CROSS_COMPILE"}
@@ -174,8 +180,7 @@ build() {
 		--prefix=/usr \
 		--libdir=lib \
 		--openssldir=/etc/ssl \
-		enable-fips \
-		enable-ktls \
+		#enable-ktls \
 		shared \
 		no-zlib \
 		no-async \
@@ -187,6 +192,7 @@ build() {
 		no-ssl3 \
 		no-seed \
 		no-weak-ssl-ciphers \
+		no-asm \
 		$optflags \
 		$CPPFLAGS \
 		$CFLAGS \
