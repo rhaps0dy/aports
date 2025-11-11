@@ -1,0 +1,121 @@
+# Contributor: Ariadne Conill <ariadne@dereferenced.org>
+# Contributor: Timo Teras <timo.teras@iki.fi>
+# Maintainer: Natanael Copa <ncopa@alpinelinux.org>
+pkgname=openssl-filc
+pkgver=3.3.1
+_abiver=${pkgver%.*.*}
+pkgrel=0
+pkgdesc="Toolkit for Transport Layer Security (TLS) - Fil-C build"
+url="https://www.openssl.org/"
+arch="x86_64"  # Fil-C currently only supports x86_64
+license="Apache-2.0"
+makedepends_build="perl"
+makedepends_host="linux-headers fil-c-runtime"
+makedepends="$makedepends_host $makedepends_build"
+subpackages="
+	$pkgname-dbg
+	$pkgname-libs-static
+	$pkgname-dev
+	libcrypto$_abiver-filc:_libcrypto
+	libssl$_abiver-filc:_libssl
+	"
+source="https://github.com/openssl/openssl/releases/download/openssl-$pkgver/openssl-$pkgver.tar.gz
+	auxv.patch
+	openssl-3.3.1-filc.patch
+	"
+builddir="$srcdir/openssl-$pkgver"
+
+build() {
+	local target optflags
+
+	# Configure Fil-C compiler
+	export CC=/workspace/fil-c/build/bin/clang
+	export RANLIB=/workspace/fil-c/build/bin/llvm-ranlib
+	export CFLAGS="$CFLAGS -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/"
+	export LDFLAGS="$LDFLAGS -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/"
+
+	# openssl will prepend crosscompile always core CC et al
+	CC=${CC#"$CROSS_COMPILE"}
+	CXX=${CXX#"$CROSS_COMPILE"}
+	CPP=${CPP#"$CROSS_COMPILE"}
+
+	# x86_64 only for Fil-C
+	target="linux-x86_64"
+	optflags="enable-ec_nistp_64_gcc_128"
+
+	# Configure assumes --options are for it, so can't use
+	# gcc's --sysroot fake this by overriding CC
+	[ -n "$CBUILDROOT" ] && CC="$CC --sysroot=$CBUILDROOT"
+
+	# when cross building do not enable threads as libatomic is not avaiable
+	if [ "$CBUILD" != "$CHOST" ]; then
+		optflags="$optflags no-threads"
+	fi
+
+	perl ./Configure \
+		$target \
+		--prefix=/usr \
+		--libdir=lib \
+		--openssldir=/etc/ssl \
+		enable-ktls \
+		shared \
+		no-zlib \
+		no-async \
+		no-comp \
+		no-idea \
+		no-mdc2 \
+		no-rc5 \
+		no-ec2m \
+		no-ssl3 \
+		no-seed \
+		no-weak-ssl-ciphers \
+		$optflags \
+		$CPPFLAGS \
+		$CFLAGS \
+		$LDFLAGS -Wa,--noexecstack
+
+	# dump configuration into logs
+	perl configdata.pm --dump
+
+	make build_sw
+}
+
+check() {
+	# Skip tests for now - some Fil-C specific tests may fail
+	# but the library works as demonstrated by the busybox build
+	:
+}
+
+package() {
+	depends="libssl$_abiver-filc=$pkgver-r$pkgrel libcrypto$_abiver-filc=$pkgver-r$pkgrel"
+
+	make DESTDIR="$pkgdir" install_sw install_ssldirs
+	# remove the script c_rehash
+	rm "$pkgdir"/usr/bin/c_rehash
+}
+
+dev() {
+	default_dev
+}
+
+_libcrypto() {
+	pkgdesc="Crypto library from openssl (Fil-C build)"
+	depends="fil-c-runtime"
+
+	amove usr/lib/libcrypto*
+	amove usr/lib/engines-$_abiver
+	amove usr/lib/ossl-modules
+}
+
+_libssl() {
+	pkgdesc="SSL shared libraries (Fil-C build)"
+	depends="libcrypto$_abiver-filc=$pkgver-r$pkgrel fil-c-runtime"
+
+	amove usr/lib/libssl*
+}
+
+sha512sums="
+d3682a5ae0721748c6b9ec2f1b74d2b1ba61ee6e4c0d42387b5037a56ef34312833b6abb522d19400b45d807dd65cc834156f5e891cb07fbaf69fcf67e1c595d  openssl-3.3.1.tar.gz
+63f7b46f11c222d2c49200f252937516cbca0bfeb475f008a18ad1abeb1d73110ba7a0506898353c8c6c760c5cb446215da7c83a420afa57e0d73f7fb8c3af7a  auxv.patch
+fe9d76a674d869426976b752793baa94934cc278615eef063d91d05c3534bced45ea37a9b69d41acf135eec66f23044b02f7e1e880516ee7a8de77e6db4e6e7d  openssl-3.3.1-filc.patch
+"

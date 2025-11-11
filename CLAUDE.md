@@ -42,19 +42,28 @@ Both musl and musl-utils packages depend on this via `so:libpizlo.so` and `so:li
 
 **IMPORTANT**: These libraries are installed to `/usr/lib/` by the package system, but at build time they're found at `/workspace/fil-c/pizfix/lib/`. This is expected - the libraries aren't standard and show errors with `ldd` because they're part of the Fil-C two-libc architecture.
 
-### ✅ Completed: OpenSSL (3.3.1)
-Location: `/workspace/openssl-3.5.4-filc/`
+### ✅ Completed: OpenSSL (3.3.1) - Alpine Package
+Location: `/workspace/aports/main/openssl-filc/`
 
-Successfully built OpenSSL 3.3.1 with Fil-C clang. This was required for busybox's ssl_client utility.
+Successfully packaged OpenSSL 3.3.1 with Fil-C patches as an Alpine package. This was required for busybox's ssl_client utility.
 
-**Key Challenge**: The Fil-C patches from the fil-c repo (openssl.patch) were designed for OpenSSL 3.3.1 specifically. Initially attempted to use Alpine's OpenSSL 3.5.4, but downgraded to 3.3.1 for compatibility.
+**Key Challenge**: The Fil-C patches from the fil-c repo were designed for OpenSSL 3.3.1 specifically. Initially attempted to use Alpine's OpenSSL 3.5.4, but downgraded to 3.3.1 for compatibility.
+
+**Extracting Fil-C Patches**: CRITICAL: When extracting patches from the fil-c repo, you MUST restrict the git diff to the specific project directory to avoid including the entire monorepo:
+```bash
+cd /workspace/fil-c && git diff <base_commit>..HEAD -- projects/openssl-3.3.1 | sed 's|projects/openssl-3.3.1/||g' > patch.patch
+```
+Without the `-- projects/openssl-3.3.1` restriction, the diff will take forever and be gigabytes in size. The `sed` command strips the path prefix so patches apply correctly in the Alpine build.
 
 **Build Process**:
-1. Started with OpenSSL repo at tag `openssl-3.3.1`
-2. Copied all patched files from `/workspace/fil-c/projects/openssl-3.3.1/` (which has Fil-C patches already committed in git)
-3. Applied Alpine's `auxv.patch` for Alpine-specific fixes
-4. Configured with: `CC="/workspace/fil-c/build/bin/clang -g -O2 -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/" ./Configure linux-x86_64 enable-ktls shared no-ssl3 no-weak-ssl-ciphers --prefix=/usr --libdir=lib --openssldir=/etc/ssl`
-5. Built successfully with `make -j16 build_sw`
+1. Extract Fil-C patch using git diff (see command above)
+2. Create APKBUILD with patches: `openssl-3.3.1-filc.patch` (Fil-C changes) and `auxv.patch` (Alpine-specific)
+3. Build with `abuild -r` which automatically:
+   - Downloads OpenSSL 3.3.1 source
+   - Applies both patches
+   - Configures with Fil-C compiler
+   - Builds shared libraries only (`make build_sw`)
+   - Creates .apk packages
 
 **Understanding "pizlonated_" Prefix**:
 During investigation, we discovered that the "pizlonated_" prefix is **Fil-C compiler name mangling** for functions that interface with unsafe assembly code. The Fil-C patches add C forwarder functions like:
@@ -75,12 +84,15 @@ The Fil-C compiler automatically adds the "pizlonated_" prefix to these when com
 - Disable inline assembly for Fil-C (`!defined(__FILC__)` conditions)
 - Export unsafe symbols with `.filc_unsafe_export` assembly directive
 
-**Built Libraries**:
-- `libcrypto.so.3` (52.5MB) - Cryptography library
-- `libssl.so.3` (15.4MB) - SSL/TLS library
-- Static versions: `libcrypto.a` (77.2MB), `libssl.a` (22.2MB)
+**Packages Created**:
+- `openssl-filc-3.3.1-r0.apk` (2.1MB) - Main package with openssl command-line tool
+- `libcrypto3-filc-3.3.1-r0.apk` (8.9MB) - Cryptography library
+- `libssl3-filc-3.3.1-r0.apk` (2.4MB) - SSL/TLS library
+- `openssl-filc-dev-3.3.1-r0.apk` (351KB) - Development headers and .so symlinks
+- `openssl-filc-libs-static-3.3.1-r0.apk` (23.9MB) - Static libraries
+- `openssl-filc-dbg-3.3.1-r0.apk` (8.0MB) - Debug symbols
 
-**ABI Compatibility Note**: OpenSSL built with Fil-C is NOT ABI-compatible with standard OpenSSL. Any programs linking against it must also be built with Fil-C.
+**ABI Compatibility Note**: OpenSSL built with Fil-C is NOT ABI-compatible with standard OpenSSL. Any programs linking against it must also be built with Fil-C. The packages correctly conflict with the system OpenSSL packages to prevent installation conflicts.
 
 ## Build Requirements
 
@@ -104,11 +116,12 @@ Without `-B`, clang looks in the wrong place and linking fails.
 
 ### Approach: Build Core Packages First
 1. ✅ musl - C library
-2. ✅ OpenSSL - Cryptography library (required by busybox)
-3. 🔄 busybox - Essential Unix utilities (next target)
-4. alpine-baselayout - Directory structure
-5. alpine-keys, apk-tools - Package manager
-6. linux kernel
+2. ✅ fil-c-runtime - Fil-C runtime libraries
+3. ✅ openssl-filc - Cryptography library (required by busybox)
+4. 🔄 busybox - Essential Unix utilities (next target)
+5. alpine-baselayout - Directory structure
+6. alpine-keys, apk-tools - Package manager
+7. linux kernel
 
 ### Dependency Management
 - Alpine's `abuild -r` handles recursive dependency building
@@ -138,10 +151,17 @@ Repository index is automatically updated by abuild.
 - Runtime RPATH for libpizlo.so/libyoloc.so may need adjustment to prefer `/usr/lib` over build directory
 
 ## Next Steps
-1. Create OpenSSL 3.3.1 package for Alpine (currently built but not packaged)
-   - May need to create custom APKBUILD or modify existing one
-   - Ensure proper dependencies on fil-c-runtime
-2. Build busybox with Fil-C OpenSSL
-   - Modify busybox APKBUILD to use Fil-C compiler and depend on Fil-C OpenSSL
+1. Build busybox with Fil-C OpenSSL
+   - Modify busybox APKBUILD to use Fil-C compiler and depend on openssl-filc-dev
    - The ssl_client utility should now compile successfully
-3. Continue with remaining core packages
+   - May need to extract Fil-C busybox patches from `/workspace/fil-c/projects/busybox-1.37.0/`
+2. Continue with remaining core packages (alpine-baselayout, etc.)
+
+## Workflow for Future Packages
+For packages with Fil-C patches in the fil-c repo:
+1. Find base commit: `cd /workspace/fil-c/projects/<package> && git blame <file> | head -1 | awk '{print $1}'`
+2. Extract patch: `cd /workspace/fil-c && git diff <commit>..HEAD -- projects/<package> | sed 's|projects/<package>/||g' > <package>-filc.patch`
+3. Create APKBUILD in `/workspace/aports/main/<package>-filc/` or modify existing
+4. Add Fil-C compiler flags and patch to sources
+5. Build with `abuild -r`
+6. Commit to git regularly
