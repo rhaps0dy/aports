@@ -11,7 +11,7 @@ arch="all"
 license="GPL-2.0-only"
 # Documentation needs pod2man (silently fails otherwise)
 makedepends_build="perl"
-makedepends_host="linux-headers openssl-dev>3 fil-c-runtime"
+makedepends_host="linux-headers fil-c-runtime"
 # Only build with utmps support if we are not bootstraping.
 [ -z "$BOOTSTRAP" ] && makedepends_host="$makedepends_host utmps-dev utmps-static"
 makedepends="$makedepends_build $makedepends_host"
@@ -184,9 +184,12 @@ build() {
 		$LDFLAGS "$srcdir"/bbsuid.c -o "$_dyndir"/bbsuid
 
 	msg "Building ssl_client"
-	# shellcheck disable=SC2046  # Allow wordsplitting for pkg-config
-	${CC:-${CROSS_COMPILE}gcc} $CPPFLAGS $CFLAGS $(pkg-config --cflags libcrypto libssl) \
-		"$srcdir"/ssl_client.c -o "$_dyndir"/ssl_client $LDFLAGS $(pkg-config --libs libcrypto libssl)
+	# Use Fil-C OpenSSL from workspace
+	${CC:-${CROSS_COMPILE}gcc} $CPPFLAGS $CFLAGS \
+		-I/workspace/openssl-3.5.4-filc/include \
+		"$srcdir"/ssl_client.c -o "$_dyndir"/ssl_client $LDFLAGS \
+		-L/workspace/openssl-3.5.4-filc -lssl -lcrypto \
+		-Wl,-rpath,/workspace/openssl-3.5.4-filc
 
 	# build dynamic
 	cd "$_dyndir"

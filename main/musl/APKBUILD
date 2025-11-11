@@ -79,7 +79,7 @@ build() {
 	CC=$CC \
 	RANLIB=/workspace/fil-c/build/bin/llvm-ranlib \
 	CFLAGS="$CFLAGS -v -B/usr/lib/gcc/x86_64-alpine-linux-musl/14.2.0/" \
-	LDFLAGS="$LDFLAGS -Wl,-soname,libc.musl-$CARCH.so.1" \
+	LDFLAGS="$LDFLAGS -Wl,-soname,libc.musl-$CARCH.so.1 -Wl,-rpath,/usr/lib" \
 	./configure \
 		--build=$CBUILD \
 		--host=$CHOST \

@@ -94,6 +94,31 @@ The Fil-C compiler automatically adds the "pizlonated_" prefix to these when com
 
 **ABI Compatibility Note**: OpenSSL built with Fil-C is NOT ABI-compatible with standard OpenSSL. Any programs linking against it must also be built with Fil-C. The packages correctly conflict with the system OpenSSL packages to prevent installation conflicts.
 
+### ✅ Completed: busybox (1.37.0-r24)
+Location: `/workspace/aports/main/busybox/`
+
+Successfully built busybox with Fil-C compiler. Key modification: ssl_client utility now links against Fil-C OpenSSL.
+
+**Bootstrap Challenge**: Cannot use `openssl-filc-dev` as a build dependency because it conflicts with system OpenSSL (needed by abuild, apk-tools, python3, etc.).
+
+**Solution**: Modified APKBUILD to directly reference Fil-C OpenSSL libraries at build time:
+```bash
+# In build() function for ssl_client:
+${CC:-${CROSS_COMPILE}gcc} $CPPFLAGS $CFLAGS \
+    -I/workspace/openssl-3.5.4-filc/include \
+    "$srcdir"/ssl_client.c -o "$_dyndir"/ssl_client $LDFLAGS \
+    -L/workspace/openssl-3.5.4-filc -lssl -lcrypto \
+    -Wl,-rpath,/workspace/openssl-3.5.4-filc
+```
+
+**Packages Created**:
+- `busybox-1.37.0-r24.apk` - Main busybox binary (808KB)
+- `busybox-static-1.37.0-r24.apk` - Static build with internal SSL (1MB)
+- `ssl_client-1.37.0-r24.apk` - Standalone SSL client linked to Fil-C OpenSSL
+- Plus binsh, suid, openrc, extras subpackages
+
+**Note**: The main busybox binary links only to musl (which links to libpizlo/libyoloc). Only ssl_client directly links to OpenSSL.
+
 ## Build Requirements
 
 ### Key Compiler Flags for Fil-C
@@ -115,13 +140,14 @@ Without `-B`, clang looks in the wrong place and linking fails.
 ## Bootstrap Strategy
 
 ### Approach: Build Core Packages First
-1. ✅ musl - C library
+1. ✅ musl - C library (RPATH issue - needs fix)
 2. ✅ fil-c-runtime - Fil-C runtime libraries
 3. ✅ openssl-filc - Cryptography library (required by busybox)
-4. 🔄 busybox - Essential Unix utilities (next target)
-5. alpine-baselayout - Directory structure
-6. alpine-keys, apk-tools - Package manager
-7. linux kernel
+4. ✅ busybox - Essential Unix utilities (ssl_client with Fil-C OpenSSL)
+5. ✅ alpine-baselayout - Directory structure (noarch package)
+6. 🔄 Minimal rootfs - Creating bootable Fil-C Alpine environment
+7. alpine-keys, apk-tools - Package manager (future)
+8. linux kernel (future)
 
 ### Dependency Management
 - Alpine's `abuild -r` handles recursive dependency building
@@ -145,17 +171,55 @@ sudo apk add --allow-untrusted /home/dev/packages/main/x86_64/<package>.apk
 
 Repository index is automatically updated by abuild.
 
+### 🔄 In Progress: Minimal Fil-C Alpine Rootfs
+Location: `/workspace/filc-alpine-rootfs/`
+
+Created a minimal rootfs with core Fil-C packages:
+- alpine-baselayout-data + alpine-baselayout
+- fil-c-runtime (libpizlo.so, libyoloc.so)
+- musl (Fil-C build)
+- busybox + busybox-binsh
+- libcrypto3-filc + libssl3-filc
+- ssl_client
+
+**Critical RPATH Issue**: musl's RUNPATH includes build directory first:
+```
+RUNPATH: /workspace/fil-c/build/bin/../../pizfix/lib:/usr/lib
+```
+
+This causes issues when trying to run binaries in chroot because:
+1. The build directory path is checked first
+2. May load wrong versions of libpizlo/libyoloc
+3. Results in segfaults when libraries mismatch
+
+**Current Status**:
+- Packages install successfully to rootfs
+- `ld-musl-x86_64.so.1` symlink created manually
+- chroot attempts result in segmentation fault
+- Need to either:
+  1. Remove build path from RUNPATH entirely, OR
+  2. Rebuild musl without build-time RUNPATH, OR
+  3. Use patchelf to fix RUNPATH after build
+
 ## Known Issues / Notes
+- **CRITICAL**: musl RUNPATH includes build directory which causes runtime issues
 - The `-B` flag path won't be in a base system - we may need to package GCC runtime files or configure clang differently for production
 - Fil-C libraries show errors with standard tools like `ldd` because they use InvisiCap pointer representation - this is expected
-- Runtime RPATH for libpizlo.so/libyoloc.so may need adjustment to prefer `/usr/lib` over build directory
+- `ld-musl-x86_64.so.1` symlink must be created manually in rootfs (not created by musl package)
 
 ## Next Steps
-1. Build busybox with Fil-C OpenSSL
-   - Modify busybox APKBUILD to use Fil-C compiler and depend on openssl-filc-dev
-   - The ssl_client utility should now compile successfully
-   - May need to extract Fil-C busybox patches from `/workspace/fil-c/projects/busybox-1.37.0/`
-2. Continue with remaining core packages (alpine-baselayout, etc.)
+1. **Fix musl RUNPATH issue** (CRITICAL)
+   - Remove build directory from RUNPATH
+   - Options: Modify configure flags, use patchelf post-build, or set proper LDFLAGS
+   - Must ensure runtime only looks in `/usr/lib` for libpizlo/libyoloc
+2. **Complete working Fil-C Alpine rootfs**
+   - Fix `ld-musl-x86_64.so.1` symlink creation in musl package
+   - Test chroot functionality
+   - Create tarball for Docker/container use
+3. **Build additional core packages**
+   - apk-tools (may need Fil-C build for full Fil-C system)
+   - alpine-keys
+   - Additional utilities as needed
 
 ## Workflow for Future Packages
 For packages with Fil-C patches in the fil-c repo:
