@@ -196,30 +196,52 @@ This causes issues when trying to run binaries in chroot because:
 - Packages install successfully to rootfs
 - `ld-musl-x86_64.so.1` symlink created manually
 - chroot attempts result in segmentation fault
-- Need to either:
-  1. Remove build path from RUNPATH entirely, OR
-  2. Rebuild musl without build-time RUNPATH, OR
-  3. Use patchelf to fix RUNPATH after build
+
+**RUNPATH Fix Attempted**:
+- Used `patchelf --remove-rpath` to remove RUNPATH from rootfs musl (verified successful)
+- Chroot still segfaults even after RUNPATH removal
+- This indicates RUNPATH was NOT the root cause
+
+**Root Cause Investigation**:
+Tested with simple hello world program compiled with Fil-C:
+1. ✅ Programs compiled with default Fil-C clang work perfectly (use ld-yolo-x86_64.so interpreter)
+2. ✅ `/workspace/fil-c/build_usermusl.sh` builds working musl (7.8MB, includes errno handler)
+3. ❌ Alpine-packaged musl is only 3.9MB vs 7.8MB from build_usermusl.sh
+4. ❌ Alpine musl missing critical components or built incorrectly
+
+**Key Finding**: The Alpine musl package is fundamentally different from the Fil-C build_usermusl.sh output. The size difference (3.9MB vs 7.8MB) and different behavior suggests:
+- Alpine musl build process may be stripping too much
+- May be missing Fil-C-specific initialization code
+- Different build flags or configuration
+
+**Next Step**: Compare Alpine musl APKBUILD build process with /workspace/fil-c/build_usermusl.sh to understand what's different
 
 ## Known Issues / Notes
-- **CRITICAL**: musl RUNPATH includes build directory which causes runtime issues
+- **CRITICAL**: Alpine musl package build differs significantly from Fil-C's build_usermusl.sh
+  - Alpine musl: 3.9MB, missing errno handler initialization
+  - build_usermusl.sh: 7.8MB, fully functional
+  - Programs compiled against build_usermusl.sh work correctly
+  - Alpine musl causes segfaults in chroot
+- RUNPATH issue was a red herring - removing it didn't fix the problem
 - The `-B` flag path won't be in a base system - we may need to package GCC runtime files or configure clang differently for production
 - Fil-C libraries show errors with standard tools like `ldd` because they use InvisiCap pointer representation - this is expected
 - `ld-musl-x86_64.so.1` symlink must be created manually in rootfs (not created by musl package)
+- Programs using ld-yolo-x86_64.so as interpreter work fine (default Fil-C behavior)
 
 ## Next Steps
-1. **Fix musl RUNPATH issue** (CRITICAL)
-   - Remove build directory from RUNPATH
-   - Options: Modify configure flags, use patchelf post-build, or set proper LDFLAGS
-   - Must ensure runtime only looks in `/usr/lib` for libpizlo/libyoloc
+1. **Fix Alpine musl APKBUILD** (CRITICAL)
+   - Compare Alpine's musl build process with `/workspace/fil-c/build_usermusl.sh`
+   - Identify missing build steps, flags, or configuration
+   - Ensure Alpine musl matches the functional 7.8MB build from build_usermusl.sh
+   - Consider: May need to use build_usermusl.sh directly or replicate its process
 2. **Complete working Fil-C Alpine rootfs**
    - Fix `ld-musl-x86_64.so.1` symlink creation in musl package
-   - Test chroot functionality
+   - Test chroot functionality with corrected musl
    - Create tarball for Docker/container use
-3. **Build additional core packages**
-   - apk-tools (may need Fil-C build for full Fil-C system)
-   - alpine-keys
-   - Additional utilities as needed
+3. **Alternative approach to investigate**
+   - Consider using ld-yolo-x86_64.so as system interpreter (works reliably)
+   - May bypass musl loader issues entirely
+   - Would need to package ld-yolo and adjust build process
 
 ## Workflow for Future Packages
 For packages with Fil-C patches in the fil-c repo:
